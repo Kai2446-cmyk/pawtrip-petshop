@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
 import { supabase } from '../../../lib/supabase';
 import { fetchTransactionDetail } from '../../../lib/tripay';
-import AdminLayout from '../../../components/AdminLayout';
+
 
 export default function TransactionDetail() {
   const router = useRouter();
