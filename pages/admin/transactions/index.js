@@ -24,12 +24,12 @@ const AdminTransactions = () => {
         return router.push('/')
       }
 
-      const { data, error } = await supabase
-        .from('transaction')
-        .select('*, profiles(full_name)')
+      const { data: txData, error } = await supabase
+        .from('transactions')
+        .select('*, profiles(full_name), transaction_items(name, quantity, price)')
         .order('created_at', { ascending: false })
 
-      if (!error) setTransactions(data)
+      if (!error) setTransactions(txData)
       setLoading(false)
     }
 
@@ -38,7 +38,7 @@ const AdminTransactions = () => {
 
   const updateStatus = async (id, newStatus) => {
     const { error } = await supabase
-      .from('transaction')
+      .from('transactions')
       .update({ status: newStatus })
       .eq('id', id)
 
@@ -71,24 +71,50 @@ const AdminTransactions = () => {
               <th className="px-4 py-2">Total</th>
               <th className="px-4 py-2">Status</th>
               <th className="px-4 py-2">Tanggal</th>
+              <th className="px-4 py-2">Item</th>
               <th className="px-4 py-2">Aksi</th>
             </tr>
           </thead>
           <tbody>
             {transactions.map((tx) => (
               <tr key={tx.id} className="border-t text-center">
-                <td className="px-4 py-2">{tx.profiles?.full_name || '-'}</td>
-                <td className="px-4 py-2">Rp {Number(tx.total_price).toLocaleString()}</td>
-                <td className="px-4 py-2 capitalize">{tx.status}</td>
+                <td className="px-4 py-2 text-left">{tx.profiles?.full_name || '-'}</td>
+                <td className="px-4 py-2">Rp {Number(tx.total).toLocaleString()}</td>
+                <td className="px-4 py-2 capitalize">
+                  <span className={`px-2 py-1 rounded text-white text-xs font-medium ${
+                    tx.status === 'pending' ? 'bg-yellow-500' :
+                    tx.status === 'paid' ? 'bg-blue-500' :
+                    tx.status === 'selesai' ? 'bg-green-600' : 'bg-gray-400'
+                  }`}>
+                    {tx.status}
+                  </span>
+                </td>
                 <td className="px-4 py-2">{new Date(tx.created_at).toLocaleDateString()}</td>
-                <td className="px-4 py-2 flex gap-2 justify-center">
+                <td className="px-4 py-2 text-left">
+                  <ul className="list-disc list-inside space-y-1">
+                    {tx.transaction_items?.map((item, idx) => (
+                      <li key={idx}>{item.quantity}x {item.name} @Rp {item.price.toLocaleString()}</li>
+                    ))}
+                  </ul>
+                </td>
+                <td className="px-4 py-2 flex gap-2 justify-center flex-wrap">
                   <button
                     className="bg-blue-500 text-white px-3 py-1 rounded hover:bg-blue-600"
                     onClick={() => router.push(`/admin/transactions/${tx.id}`)}
                   >
                     Detail
                   </button>
-                  {tx.status !== 'selesai' && (
+
+                  {tx.status === 'pending' && (
+                    <button
+                      className="bg-yellow-500 text-white px-3 py-1 rounded hover:bg-yellow-600"
+                      onClick={() => updateStatus(tx.id, 'paid')}
+                    >
+                      Tandai Dibayar
+                    </button>
+                  )}
+
+                  {tx.status === 'paid' && (
                     <button
                       className="bg-green-600 text-white px-3 py-1 rounded hover:bg-green-700"
                       onClick={() => updateStatus(tx.id, 'selesai')}
@@ -106,4 +132,4 @@ const AdminTransactions = () => {
   )
 }
 
-export default AdminTransactions
+export default AdminTransactions;

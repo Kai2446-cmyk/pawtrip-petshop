@@ -1,3 +1,4 @@
+// pages/checkout.js
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
 import { useRouter } from "next/router";
@@ -31,7 +32,7 @@ export default function CheckoutPage() {
 
       const { data: items, error } = await supabase
         .from("cart")
-        .select(`quantity, products(name, price, image_url), services(name, price)`) 
+        .select(`id, quantity, products(name, price, image_url), services(name, price)`)
         .eq("user_id", user.id)
         .order("id", { ascending: true });
 
@@ -66,7 +67,62 @@ export default function CheckoutPage() {
 
   const handlePayment = async () => {
     if (!paymentMethod) return alert("Pilih metode pembayaran.");
-    await supabase.rpc("checkout", { _user_id: user.id, _payment: paymentMethod });
+
+    // Simpan transaksi utama
+    const { data: transaction, error: transactionError } = await supabase
+      .from("transactions")
+      .insert([
+        {
+          user_id: user.id,
+          total: total,
+          status: "pending",
+          payment_method: paymentMethod,
+          created_at: new Date(),
+        },
+      ])
+      .select()
+      .single();
+
+    if (transactionError) {
+      console.error("Gagal menyimpan transaksi:", transactionError);
+      alert("Terjadi kesalahan saat menyimpan transaksi.");
+      return;
+    }
+
+    // Simpan item transaksi
+    const itemsToInsert = cartItems.map(item => ({
+      transaction_id: transaction.id,
+      name: item.name,
+      quantity: item.quantity,
+      price: item.price,
+    }));
+
+    const { error: itemError } = await supabase
+      .from("transaction_items")
+      .insert(itemsToInsert);
+
+    if (itemError) {
+      console.error("Gagal menyimpan item transaksi:", itemError);
+      alert("Gagal menyimpan item transaksi.");
+      return;
+    }
+
+    // Simpan ke riwayat user
+    await supabase.from("payment_history").insert([
+      {
+        user_id: user.id,
+        transaction_id: transaction.id,
+        total,
+        method: paymentMethod,
+        status: "pending",
+        created_at: new Date(),
+      },
+    ]);
+
+    // Hapus keranjang
+    await supabase.from("cart").delete().eq("user_id", user.id);
+
+    // Tampilkan info pembayaran
     setShowPaymentInfo(true);
   };
 
@@ -89,11 +145,11 @@ export default function CheckoutPage() {
         <h3 className="text-xl font-semibold mb-2">Scan QR Code</h3>
         <p className="mb-4">Gunakan {selectedPayment.label}</p>
         <div className="flex justify-center mb-4">
-        <QRCode
-        value={`https://example.com/pay/${user.id}/${selectedPayment.value}`}
-        size={180}
-        />
-       </div>
+          <QRCode
+            value={`https://example.com/pay/${user.id}/${selectedPayment.value}`}
+            size={180}
+          />
+        </div>
         <p className="mt-4">Total: <strong>Rp {total.toLocaleString("id-ID")}</strong></p>
       </div>
     );
@@ -110,15 +166,12 @@ export default function CheckoutPage() {
         {/* Ringkasan Pesanan */}
         <div className="mb-6 border-b pb-4">
           <h2 className="text-2xl text-black font-bold mb-10">Ringkasan Pesanan</h2>
-
-          {/* Header */}
           <div className="grid grid-cols-[1fr,1fr,1fr] items-center justify-items-center text-black font-semibold border-b pb-2">
             <span className="justify-self-start">Produk</span>
             <span>Jumlah Pesanan</span>
             <span className="justify-self-end">Total Harga Barang</span>
           </div>
 
-          {/* Items */}
           {cartItems.map((item, idx) => (
             <div
               key={idx}
@@ -134,18 +187,15 @@ export default function CheckoutPage() {
                 )}
                 <span className="text-xl font-medium text-black">{item.name}</span>
               </div>
-
               <div className="text-xl text-black justify-self-center flex justify-center">
                 {item.quantity} x Rp {item.price.toLocaleString("id-ID")}
               </div>
-
               <div className="font-semibold text-black justify-self-end">
                 Rp {(item.price * item.quantity).toLocaleString("id-ID")}
               </div>
             </div>
           ))}
 
-          {/* Total */}
           <div className="flex justify-between items-center mt-4 pt-4 border-t">
             <span className="font-semibold text-lg text-gray-800">Total Harga</span>
             <span className="font-semibold text-lg text-black">
@@ -154,7 +204,7 @@ export default function CheckoutPage() {
           </div>
         </div>
 
-        {/* Payment Methods */}
+        {/* Metode Pembayaran */}
         <h2 className="text-xl font-semibold mb-4 text-gray-700">Pilih Metode Pembayaran</h2>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
           {paymentOptions.map((option) => (
@@ -175,7 +225,7 @@ export default function CheckoutPage() {
           ))}
         </div>
 
-        {/* Finish Button or Payment Info */}
+        {/* Tombol pembayaran atau instruksi */}
         {!showPaymentInfo ? (
           <div className="text-center">
             <button

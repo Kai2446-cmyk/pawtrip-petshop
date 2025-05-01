@@ -1,87 +1,101 @@
-// pages/admin/transactions/[id].js
-import { useRouter } from 'next/router'
-import { useEffect, useState } from 'react'
-import { supabase } from '../../../lib/supabase'
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/router';
+import { supabase } from '../../../lib/supabase';
+import { fetchTransactionDetail } from '../../../lib/tripay';
+import AdminLayout from '../../../components/AdminLayout';
 
-const TransactionDetail = () => {
-  const router = useRouter()
-  const { id } = router.query
-  const [transaction, setTransaction] = useState(null)
-  const [loading, setLoading] = useState(true)
+export default function TransactionDetail() {
+  const router = useRouter();
+  const { id } = router.query;
+  const [transaction, setTransaction] = useState(null);
+  const [tripayDetail, setTripayDetail] = useState(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!id) return
+    if (!id) return;
 
-    const fetchTransaction = async () => {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) return router.push('/login')
-
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('role')
-        .eq('id', user.id)
-        .single()
-
-      if (profile?.role !== 'admin') {
-        alert('Akses hanya untuk admin')
-        return router.push('/')
-      }
-
+    const fetchData = async () => {
+      setLoading(true);
       const { data, error } = await supabase
         .from('transaction')
-        .select('*, profiles(full_name, address, phone)')
+        .select('*, profiles(full_name, email), transaction_items(*, product(name))')
         .eq('id', id)
-        .single()
+        .single();
 
-      if (!error) setTransaction(data)
-      setLoading(false)
-    }
+      if (error) {
+        console.error('Error fetching transaction:', error);
+        setLoading(false);
+        return;
+      }
 
-    fetchTransaction()
-  }, [id])
+      setTransaction(data);
 
-  if (loading) return <div className="p-6">Memuat data...</div>
-  if (!transaction) return <div className="p-6">Transaksi tidak ditemukan.</div>
+      // Jika ada reference Tripay, ambil detail dari Tripay
+      if (data.reference) {
+        const tripay = await fetchTransactionDetail(data.reference);
+        if (tripay.success) {
+          setTripayDetail(tripay.data);
+        }
+      }
+
+      setLoading(false);
+    };
+
+    fetchData();
+  }, [id]);
+
+  if (loading) return <AdminLayout><p className="p-4">Loading...</p></AdminLayout>;
+  if (!transaction) return <AdminLayout><p className="p-4">Transaksi tidak ditemukan.</p></AdminLayout>;
 
   return (
-    <div className="p-6 max-w-3xl mx-auto">
-      <button
-        onClick={() => router.push('/admin/transactions')}
-        className="mb-4 text-sm bg-gray-200 hover:bg-gray-300 text-gray-800 px-4 py-2 rounded"
-      >
-        ← Kembali
-      </button>
+    <AdminLayout>
+      <div className="p-4">
+        <h1 className="text-xl font-semibold mb-4">Detail Transaksi</h1>
 
-      <h1 className="text-2xl font-bold mb-4">Detail Transaksi</h1>
+        <div className="mb-4">
+          <p><strong>ID Transaksi:</strong> {transaction.id}</p>
+          <p><strong>Status:</strong> {transaction.status}</p>
+          <p><strong>Total Harga:</strong> Rp {transaction.total_price.toLocaleString()}</p>
+          <p><strong>Waktu:</strong> {new Date(transaction.created_at).toLocaleString()}</p>
+          {transaction.reference && (
+            <p><strong>Reference:</strong> {transaction.reference}</p>
+          )}
+        </div>
 
-      <div className="bg-white shadow rounded p-6 space-y-4 border">
-        <div>
-          <h2 className="font-semibold text-gray-600">Nama Pengguna:</h2>
-          <p className="text-gray-800">{transaction.profiles?.full_name}</p>
+        <div className="mb-4">
+          <h2 className="text-lg font-semibold mb-2">Informasi Pelanggan</h2>
+          <p><strong>Nama:</strong> {transaction.profiles?.full_name}</p>
+          <p><strong>Email:</strong> {transaction.profiles?.email}</p>
         </div>
-        <div>
-          <h2 className="font-semibold text-gray-600">Alamat:</h2>
-          <p className="text-gray-800">{transaction.profiles?.address || '-'}</p>
+
+        <div className="mb-4">
+          <h2 className="text-lg font-semibold mb-2">Produk</h2>
+          <ul className="list-disc list-inside">
+            {transaction.transaction_items?.map((item, index) => (
+              <li key={index}>
+                {item.product?.name} - {item.quantity} x Rp {item.price.toLocaleString()}
+              </li>
+            ))}
+          </ul>
         </div>
-        <div>
-          <h2 className="font-semibold text-gray-600">Nomor HP:</h2>
-          <p className="text-gray-800">{transaction.profiles?.phone || '-'}</p>
-        </div>
-        <div>
-          <h2 className="font-semibold text-gray-600">Total Harga:</h2>
-          <p className="text-orange-600 font-bold text-lg">Rp {Number(transaction.total_price).toLocaleString()}</p>
-        </div>
-        <div>
-          <h2 className="font-semibold text-gray-600">Status:</h2>
-          <p className="capitalize text-blue-600">{transaction.status}</p>
-        </div>
-        <div>
-          <h2 className="font-semibold text-gray-600">Tanggal Transaksi:</h2>
-          <p>{new Date(transaction.created_at).toLocaleDateString()}</p>
-        </div>
+
+        {tripayDetail && (
+          <div className="mb-4 border-t pt-4">
+            <h2 className="text-lg font-semibold mb-2">Info Pembayaran (Tripay)</h2>
+            <p><strong>Metode:</strong> {tripayDetail.payment_method}</p>
+            <p><strong>Provider:</strong> {tripayDetail.payment_name}</p>
+            <p><strong>Merchant Ref:</strong> {tripayDetail.merchant_ref}</p>
+            <p><strong>Status:</strong> {tripayDetail.status}</p>
+            <p><strong>Amount Paid:</strong> Rp {tripayDetail.amount_received?.toLocaleString()}</p>
+            {tripayDetail.pay_code && (
+              <p><strong>Kode Bayar:</strong> {tripayDetail.pay_code}</p>
+            )}
+            {tripayDetail.payment_url && (
+              <p><a href={tripayDetail.payment_url} className="text-blue-600 underline" target="_blank" rel="noopener noreferrer">Lihat Halaman Pembayaran</a></p>
+            )}
+          </div>
+        )}
       </div>
-    </div>
-  )
+    </AdminLayout>
+  );
 }
-
-export default TransactionDetail
